@@ -8,8 +8,20 @@ import {
   Revenue,
 } from './definitions';
 import { formatCurrency } from './utils';
+import { neon } from "@neondatabase/serverless";
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+// const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL environment variable is not set');
+}
+const sql = neon(databaseUrl);
+
+export async function getData() {
+    const data = await sql`SELECT * FROM posts;`;
+    return data;
+}
 
 export async function fetchRevenue() {
   try {
@@ -19,7 +31,7 @@ export async function fetchRevenue() {
     // console.log('Fetching revenue data...');
     // await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    const data = await sql<Revenue[]>`SELECT * FROM revenue`;
+    const data = (await sql`SELECT * FROM revenue`) as Revenue[];
 
     // console.log('Data fetch completed after 3 seconds.');
 
@@ -32,12 +44,12 @@ export async function fetchRevenue() {
 
 export async function fetchLatestInvoices() {
   try {
-    const data = await sql<LatestInvoiceRaw[]>`
+    const data = (await sql`
       SELECT invoices.amount, customers.name, customers.image_url, customers.email, invoices.id
       FROM invoices
       JOIN customers ON invoices.customer_id = customers.id
       ORDER BY invoices.date DESC
-      LIMIT 5`;
+      LIMIT 5`) as LatestInvoiceRaw[];
 
     const latestInvoices = data.map((invoice) => ({
       ...invoice,
@@ -93,7 +105,7 @@ export async function fetchFilteredInvoices(
   const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
   try {
-    const invoices = await sql<InvoicesTable[]>`
+    const invoices = (await sql`
       SELECT
         invoices.id,
         invoices.amount,
@@ -112,7 +124,7 @@ export async function fetchFilteredInvoices(
         invoices.status ILIKE ${`%${query}%`}
       ORDER BY invoices.date DESC
       LIMIT ${ITEMS_PER_PAGE} OFFSET ${offset}
-    `;
+    `) as InvoicesTable[];
 
     return invoices;
   } catch (error) {
@@ -144,7 +156,7 @@ export async function fetchInvoicesPages(query: string) {
 
 export async function fetchInvoiceById(id: string) {
   try {
-    const data = await sql<InvoiceForm[]>`
+    const data = (await sql`
       SELECT
         invoices.id,
         invoices.customer_id,
@@ -152,7 +164,7 @@ export async function fetchInvoiceById(id: string) {
         invoices.status
       FROM invoices
       WHERE invoices.id = ${id};
-    `;
+    `) as InvoiceForm[];
 
     const invoice = data.map((invoice) => ({
       ...invoice,
@@ -169,13 +181,13 @@ export async function fetchInvoiceById(id: string) {
 
 export async function fetchCustomers() {
   try {
-    const customers = await sql<CustomerField[]>`
+    const customers = (await sql`
       SELECT
         id,
         name
       FROM customers
       ORDER BY name ASC
-    `;
+    `) as CustomerField[];
 
     return customers;
   } catch (err) {
@@ -186,23 +198,23 @@ export async function fetchCustomers() {
 
 export async function fetchFilteredCustomers(query: string) {
   try {
-    const data = await sql<CustomersTableType[]>`
-		SELECT
-		  customers.id,
-		  customers.name,
-		  customers.email,
-		  customers.image_url,
-		  COUNT(invoices.id) AS total_invoices,
-		  SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END) AS total_pending,
-		  SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END) AS total_paid
-		FROM customers
-		LEFT JOIN invoices ON customers.id = invoices.customer_id
-		WHERE
-		  customers.name ILIKE ${`%${query}%`} OR
+    const data = (await sql`
+    SELECT
+      customers.id,
+      customers.name,
+      customers.email,
+      customers.image_url,
+      COUNT(invoices.id) AS total_invoices,
+      SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END) AS total_pending,
+      SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END) AS total_paid
+    FROM customers
+    LEFT JOIN invoices ON customers.id = invoices.customer_id
+    WHERE
+      customers.name ILIKE ${`%${query}%`} OR
         customers.email ILIKE ${`%${query}%`}
-		GROUP BY customers.id, customers.name, customers.email, customers.image_url
-		ORDER BY customers.name ASC
-	  `;
+    GROUP BY customers.id, customers.name, customers.email, customers.image_url
+    ORDER BY customers.name ASC
+    `) as CustomersTableType[];
 
     const customers = data.map((customer) => ({
       ...customer,
